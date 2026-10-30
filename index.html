@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="description" content="Ogarnij — prosty menedżer zadań i projektów">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Ogarnij">
+  <title>Ogarnij</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <aside class="sidebar" id="sidebar" aria-label="Nawigacja"></aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn only-mobile" data-act="drawer" aria-label="Menu"></button>
+        <h1 id="viewTitle"></h1>
+        <div class="topbar-actions" id="viewActions"></div>
+      </header>
+
+      <div class="searchbar" id="searchBar" hidden>
+        <input id="searchInput" type="search" placeholder="Szukaj w zadaniach, notatkach i komentarzach…" autocomplete="off">
+      </div>
+
+      <form class="quickadd" id="quickadd" autocomplete="off">
+        <span class="quickadd-plus" aria-hidden="true"></span>
+        <input id="quickInput" placeholder="Dodaj zadanie…  (#projekt  @etykieta  ! = priorytet)" enterkeyhint="done">
+      </form>
+
+      <div class="list-wrap" id="list"></div>
+    </main>
+
+    <section class="detail" id="detail" aria-label="Szczegóły zadania"></section>
+  </div>
+
+  <nav class="tabbar" id="tabbar" aria-label="Szybka nawigacja"></nav>
+  <div class="scrim" id="scrim"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <dialog id="dlg"></dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
