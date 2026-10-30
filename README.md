@@ -15,6 +15,7 @@ Prosty menedżer zadań w stylu Nozbe, działający w przeglądarce (komputer) i
   (`#` – projekt, `@` – etykieta, nieistniejąca zostanie utworzona, `!` – priorytet).
 - Przeciąganie zadania (komputer) na projekt / etykietę / Priorytet / Na dziś w pasku bocznym.
 - Cofanie ukończenia i usunięcia, wyszukiwarka, motyw jasny/ciemny, eksport i import kopii (JSON).
+- **Synchronizacja między laptopem a telefonem** przez bazę danych Supabase (opis niżej).
 - Skróty: `n` – nowe zadanie, `/` – szukaj, `Esc` – zamknij.
 
 ## Uruchomienie lokalnie
@@ -36,8 +37,52 @@ Na telefonie otwórz ten adres i:
 - **Android (Chrome):** menu ⋮ → *Zainstaluj aplikację* / *Dodaj do ekranu głównego*,
 - **iPhone (Safari):** przycisk *Udostępnij* → *Do ekranu początkowego*.
 
-## Dane
+## Synchronizacja laptop ↔ telefon (baza danych Supabase)
 
-Dane są zapisywane w pamięci przeglądarki (`localStorage`) na danym urządzeniu.
-Aby przenieść zadania między komputerem a telefonem, użyj *Ustawienia → Eksportuj / Importuj*.
-Automatyczna synchronizacja między urządzeniami wymagałaby backendu (np. Supabase lub Firebase).
+Aplikacja zawsze działa na danych lokalnych (także offline), a po zalogowaniu w tle synchronizuje je
+z bazą Postgres w [Supabase](https://supabase.com) (darmowy plan wystarczy). Zmiany z drugiego urządzenia
+pojawiają się na żywo. Przy konflikcie na tym samym zadaniu wygrywa nowsza zmiana.
+
+### Jednorazowa konfiguracja (ok. 5 minut)
+
+1. Załóż konto na https://supabase.com i utwórz nowy projekt (region np. *Central EU (Frankfurt)*).
+2. W projekcie otwórz **SQL Editor → New query**, wklej zawartość pliku [`supabase/schema.sql`](supabase/schema.sql)
+   i kliknij **Run**. To tworzy tabelę `items` z zabezpieczeniem — każdy użytkownik widzi tylko swoje dane.
+3. (Zalecane) **Authentication → Sign In / Providers → Email**: wyłącz *Confirm email*,
+   żeby po założeniu konta nie trzeba było klikać w link z maila.
+4. **Project Settings → API**: skopiuj *Project URL* i klucz *anon* / *publishable*.
+5. Wpisz je w jeden z dwóch sposobów:
+   - **w pliku `config.js`** (najwygodniej — po opublikowaniu każde urządzenie od razu je zna), albo
+   - w aplikacji: **Ustawienia → Synchronizacja** (trzeba to zrobić na każdym urządzeniu).
+   
+   Klucz *anon* jest publiczny z założenia — dane chroni logowanie i reguły RLS w bazie.
+   Nigdy nie wpisuj tu klucza *service_role* / *secret*.
+
+### Używanie
+
+1. Na laptopie: **Ustawienia → Synchronizacja → Załóż konto** (e-mail + hasło). Dane z laptopa trafią do chmury.
+2. Na telefonie: otwórz aplikację, **Ustawienia → Zaloguj** tym samym kontem. Aplikacja zapyta,
+   czy zastąpić dane na telefonie danymi z chmury — wybierz **OK**.
+3. Gotowe. Stan synchronizacji widać na dole paska bocznego (zielona kropka = zsynchronizowano).
+
+Bez internetu wszystko działa normalnie; zmiany wyślą się po odzyskaniu połączenia.
+
+### Jak to działa
+
+- Każde zadanie, projekt i etykieta to jeden wiersz w tabeli `items` (`data` w JSONB).
+- Usunięcie zostawia „nagrobek” (`deleted = true`), żeby inne urządzenia też usunęły rekord.
+- `updated_at` to czas zmiany na urządzeniu — wyzwalacz w bazie nie pozwala starszej zmianie nadpisać nowszej.
+- `server_ts` to czas zapisu na serwerze — urządzenie pobiera tylko to, co zmieniło się od ostatniej synchronizacji.
+- Powiadomienia na żywo: Supabase Realtime.
+
+Bez skonfigurowanego Supabase dane zostają tylko w przeglądarce (`localStorage`); można je wtedy przenosić
+przez *Ustawienia → Eksportuj / Importuj*.
+
+## Pliki
+
+- `index.html`, `styles.css`, `app.js` — aplikacja
+- `sync.js` — synchronizacja z Supabase
+- `config.js` — adres i klucz projektu Supabase
+- `supabase/schema.sql` — schemat bazy danych
+- `sw.js`, `manifest.webmanifest`, `icons/` — instalacja na telefonie i praca offline
+- `vendor/supabase.js` — biblioteka @supabase/supabase-js 2.118.0 (licencja MIT), dołączona, żeby nie zależeć od CDN

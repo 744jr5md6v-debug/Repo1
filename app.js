@@ -34,6 +34,9 @@ const ICONS = {
   repeat: 'M17 1l4 4-4 4 M3 11V9a4 4 0 0 1 4-4h14 M7 23l-4-4 4-4 M21 13v2a4 4 0 0 1-4 4H3',
   note: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8',
   grid: 'M3 3h7v7H3z M14 3h7v7h-7z M14 14h7v7h-7z M3 14h7v7H3z',
+  cloud: 'M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z',
+  cloudOff: 'M2 2l20 20 M5.78 5.78A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.31-.2 M21.53 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7 7 0 0 0 10 5.07',
+  refresh: 'M21 12a9 9 0 1 1-2.64-6.36L21 8 M21 3v5h-5',
 };
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -155,13 +158,21 @@ function load() {
     const raw = localStorage.getItem(STORE_KEY);
     if (raw) return normalize(JSON.parse(raw));
   } catch { /* uszkodzone dane lub brak dostępu — start od zera */ }
-  return seed();
+  // Zapisujemy od razu, żeby przykładowe zadania miały stałe id (ważne dla synchronizacji).
+  const s = seed();
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch { /* tylko w pamięci */ }
+  return s;
 }
 
 let saveFailed = false;
-function save() {
+function persist() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); saveFailed = false; }
   catch { if (!saveFailed) toast('Nie udało się zapisać danych w przeglądarce'); saveFailed = true; }
+}
+
+function save() {
+  persist();
+  Sync.schedule();
 }
 
 let state = load();
@@ -325,8 +336,41 @@ function renderSidebar() {
         || '<p class="nav-empty">Brak etykiet</p>'}
     </nav>
     <div class="sidebar-foot">
+      <button class="nav-item sync-badge" data-act="settings" id="syncBadge">${syncBadgeHTML()}</button>
       <button class="nav-item" data-act="settings">${icon('settings')}<span class="nav-label">Ustawienia i kopia zapasowa</span></button>
     </div>`;
+}
+
+/* ---------- synchronizacja: wskaźnik i odświeżanie ---------- */
+
+const SYNC_LABELS = {
+  off: 'Synchronizacja wyłączona', connecting: 'Łączenie…', signedout: 'Zaloguj się, aby synchronizować',
+  syncing: 'Synchronizacja…', ok: 'Zsynchronizowano', offline: 'Offline — zsynchronizuję później', error: 'Błąd synchronizacji',
+};
+
+function syncBadgeHTML() {
+  const s = Sync.info();
+  const ic = s.status === 'ok' || s.status === 'syncing' ? 'cloud' : s.status === 'off' ? 'cloudOff' : 'cloud';
+  let text = SYNC_LABELS[s.status];
+  if (s.status === 'ok' && s.lastSync) text += ` · ${fmtStamp(s.lastSync).replace('dziś, ', '')}`;
+  return `${icon(ic, s.status === 'syncing' ? 'spin' : '')}<span class="nav-label">${esc(text)}</span><span class="sync-dot ${s.status}"></span>`;
+}
+
+// Wywoływane przez sync.js przy każdej zmianie stanu synchronizacji.
+function onSyncStatus() {
+  const el = $('#syncBadge');
+  if (el) el.innerHTML = syncBadgeHTML();
+  const box = $('#syncBox');
+  if (box) renderSyncBox(box);
+}
+
+// Wywoływane przez sync.js, gdy przyszły zmiany z innego urządzenia.
+function refreshFromSync() {
+  const a = document.activeElement;
+  const editing = a && a.closest('#detail') && a.matches('input, textarea');
+  if (ui.sel && !taskById(ui.sel)) { closeTask(); return; }
+  if (editing) { renderSidebar(); renderMain(); renderTabbar(); }
+  else render();
 }
 
 function renderMain() {
@@ -690,6 +734,7 @@ function openSettings() {
   const dlg = $('#dlg');
   dlg.innerHTML = `<div class="dlg-form">
     <h2>Ustawienia</h2>
+    <div class="fld"><span>Synchronizacja laptop ↔ telefon</span><div id="syncBox"></div></div>
     <div class="fld"><span>Motyw</span>
       <div class="seg wide">
         ${[['auto', 'Systemowy'], ['light', 'Jasny'], ['dark', 'Ciemny']].map(([k, n]) => `<button data-theme-set="${k}" class="${theme === k ? 'on' : ''}">${n}</button>`).join('')}
@@ -709,6 +754,7 @@ function openSettings() {
     </div>
     <div class="dlg-actions"><span class="sp"></span><button class="btn primary" data-dlg="cancel">Gotowe</button></div>
   </div>`;
+  renderSyncBox($('#syncBox', dlg));
   $$('[data-theme-set]', dlg).forEach(b => b.onclick = () => {
     setTheme(b.dataset.themeSet);
     $$('[data-theme-set]', dlg).forEach(x => x.classList.toggle('on', x === b));
@@ -747,6 +793,81 @@ function openSettings() {
     commit();
   };
   dlg.showModal();
+}
+
+function renderSyncBox(box) {
+  const s = Sync.info();
+  const cfg = Sync.config();
+  if (!s.configured) {
+    box.innerHTML = `
+      <p class="hint">Podaj dane projektu Supabase (Project Settings → API). Instrukcja jest w pliku README.</p>
+      <form class="sync-form" data-sync="configure">
+        <input name="url" placeholder="Project URL, np. https://abcd.supabase.co" required autocomplete="off" inputmode="url">
+        <input name="key" placeholder="Klucz anon / publishable" required autocomplete="off">
+        <button class="btn primary" type="submit">Połącz</button>
+      </form>`;
+  } else if (s.status === 'connecting') {
+    box.innerHTML = '<p class="hint">Łączenie z bazą…</p>';
+  } else if (!s.email) {
+    box.innerHTML = `
+      ${s.status === 'error' || s.status === 'offline' ? `<p class="hint err">${esc(SYNC_LABELS[s.status])}${s.lastError ? `: ${esc(s.lastError)}` : ''}</p>` : ''}
+      <p class="hint">Zaloguj się tym samym kontem na laptopie i telefonie.</p>
+      <form class="sync-form" data-sync="login">
+        <input name="email" type="email" placeholder="E-mail" required autocomplete="email">
+        <input name="password" type="password" placeholder="Hasło (min. 6 znaków)" required minlength="6" autocomplete="current-password">
+        <div class="row">
+          <button class="btn primary" type="submit" value="in">Zaloguj</button>
+          <button class="btn" type="submit" value="up">Załóż konto</button>
+        </div>
+      </form>
+      ${cfg.own ? '<button class="linkish" data-sync="forget">Zmień projekt Supabase</button>' : ''}`;
+  } else {
+    box.innerHTML = `
+      <p class="sync-state"><span class="sync-dot ${s.status}"></span>${esc(SYNC_LABELS[s.status])}${s.status === 'ok' && s.lastSync ? ` · ${fmtStamp(s.lastSync)}` : ''}</p>
+      ${s.status === 'error' && s.lastError ? `<p class="hint err">${esc(s.lastError)}</p>` : ''}
+      <p class="hint">Zalogowano jako <b>${esc(s.email)}</b>. Zmiany wysyłają się automatycznie, a zmiany z innych urządzeń pojawiają się od razu.</p>
+      <div class="row">
+        <button class="btn" data-sync="now">${icon('refresh')}Synchronizuj teraz</button>
+        <button class="btn" data-sync="logout">Wyloguj</button>
+      </div>`;
+  }
+  const form = $('form', box);
+  if (form) form.onsubmit = async e => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const btns = $$('button', form);
+    btns.forEach(b => { b.disabled = true; });
+    try {
+      if (form.dataset.sync === 'configure') Sync.configure(fd.get('url'), fd.get('key'));
+      else if (e.submitter && e.submitter.value === 'up') {
+        const ready = await Sync.signUp(fd.get('email'), fd.get('password'));
+        if (!ready) toast('Konto założone. Potwierdź adres e-mail (link w skrzynce), potem zaloguj się.');
+      } else {
+        await Sync.signIn(fd.get('email'), fd.get('password'));
+      }
+    } catch (err) {
+      toast(authMessage(err));
+    } finally {
+      btns.forEach(b => { b.disabled = false; });
+    }
+  };
+  $$('[data-sync]', box).forEach(b => {
+    if (b.tagName === 'FORM') return;
+    b.onclick = async () => {
+      if (b.dataset.sync === 'now') Sync.syncNow();
+      if (b.dataset.sync === 'logout' && confirm('Wylogować? Dane zostaną na tym urządzeniu, ale przestaną się synchronizować.')) await Sync.signOut();
+      if (b.dataset.sync === 'forget') Sync.configure('', '');
+    };
+  });
+}
+
+function authMessage(err) {
+  const m = (err && err.message) || '';
+  if (/invalid login credentials/i.test(m)) return 'Nieprawidłowy e-mail lub hasło';
+  if (/email not confirmed/i.test(m)) return 'Najpierw potwierdź adres e-mail (link w skrzynce)';
+  if (/already registered/i.test(m)) return 'Takie konto już istnieje — zaloguj się';
+  if (/password/i.test(m)) return 'Hasło jest za słabe (min. 6 znaków)';
+  return m || 'Coś poszło nie tak';
 }
 
 /* ---------- motyw ---------- */
@@ -948,6 +1069,8 @@ if (matchMedia('(max-width: 760px)').matches) $('#quickInput').placeholder = 'Do
 history.replaceState(null, '', location.hash || '#/inbox');
 parseRoute();
 render();
+
+Sync.init();
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
