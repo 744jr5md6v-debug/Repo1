@@ -6,6 +6,7 @@
 
 const STORE_KEY = 'ogarnij.v1';
 const THEME_KEY = 'ogarnij.theme';
+const MATRIX_MODE_KEY = 'ogarnij.matrixMode';
 const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899', '#64748b'];
 const MONTHS = ['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'];
 const MONTHS_LONG = ['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'lipca', 'sierpnia', 'września', 'października', 'listopada', 'grudnia'];
@@ -273,7 +274,7 @@ function viewModel() {
     case 'projects':
       return { title: 'Projekty', projectsGrid: true, noAdd: true };
     case 'matrix':
-      return { title: 'Macierz Eisenhowera', matrix: true, noAdd: true, tasks: open };
+      return { title: 'Macierz', matrix: true, noAdd: true, tasks: open };
     case 'project': {
       const p = projectById(ui.arg);
       if (!p) break;
@@ -400,12 +401,21 @@ function renderMain() {
   let actions = '';
   if (v.editable) actions += `<button class="icon-btn" data-act="edit-${v.kind}" data-id="${esc(ui.arg)}" title="Edytuj" aria-label="Edytuj">${icon('edit')}</button>`;
   if (v.projectsGrid) actions += `<button class="btn primary sm" data-act="new-project">${icon('plus')}Nowy projekt</button>`;
+  if (v.matrix) {
+    const mode = matrixMode();
+    actions += `<div class="seg mode-switch">
+      <button class="${mode === 'map' ? 'on' : ''}" data-act="matrix-mode" data-v="map">Mapa</button>
+      <button class="${mode === 'grid' ? 'on' : ''}" data-act="matrix-mode" data-v="grid">Ćwiartki</button>
+    </div>`;
+  }
   if (v.clearDone && v.tasks.length) actions += `<button class="btn sm" data-act="clear-done">${icon('trash')}Usuń ukończone</button>`;
   $('#viewActions').innerHTML = actions;
   $('#quickadd').hidden = !!v.noAdd;
   $('#searchBar').hidden = !v.search;
   if (v.search && $('#searchInput').value !== ui.q) $('#searchInput').value = ui.q;
-  $('#list').innerHTML = v.projectsGrid ? projectsGridHTML() : v.matrix ? matrixHTML(v) : listHTML(v);
+  const map = v.matrix && matrixMode() === 'map';
+  $('#list').innerHTML = v.projectsGrid ? projectsGridHTML() : map ? mapHTML(v) : v.matrix ? matrixHTML(v) : listHTML(v);
+  if (map) layoutMap();
   document.title = `${v.title} · Ogarnij`;
 }
 
@@ -449,13 +459,164 @@ function matrixHTML(v) {
     </section>`;
 }
 
-function eisenhowerChip(t) {
+// Mini-macierz 2×2: świeci ćwiartka zadania; przy niepełnej ocenie — obie pasujące (blado).
+/* ---------- mapa priorytetów ---------- */
+
+function matrixMode() {
+  try { return localStorage.getItem(MATRIX_MODE_KEY) || 'map'; } catch { return 'map'; }
+}
+
+// 0..1 — im bliżej termin, tym bardziej pilne (po terminie = 1)
+function urgencyScore(t) {
+  if (!t.due) return 0.08;
+  const days = Math.round((parseISO(t.due) - parseISO(todayISO())) / 864e5);
+  if (days <= 0) return 1;
+  return Math.max(0.15, Math.min(0.92, 1 - days / 21));
+}
+
+// Stabilne „losowe” 0..1 z id — bańki nie skaczą przy każdym odświeżeniu
+function hash01(str) {
+  let h = 2166136261;
+  for (const ch of str) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  return ((h >>> 0) % 1000) / 1000;
+}
+
+function bubbleHTML(t) {
   const q = quadOf(t);
-  if (q) return `<span class="eis q${q}" title="${QUADS[q].sub}">${QUADS[q].name}</span>`;
+  const total = t.checklist.length;
+  const pct = total ? Math.round(t.checklist.filter(c => c.done).length / total * 100) : 0;
+  const p = t.projectId && projectById(t.projectId);
+  const today = todayISO();
+  const timing = t.due && t.due < today ? 'overdue' : t.due === today ? 'due-today' : '';
+  const tip = [t.title, eisLabel(t), t.due ? `termin: ${fmtDue(t.due)}` : '', total ? `lista: ${pct}%` : ''].filter(Boolean).join(' · ');
+  return `<button class="bubble q${q} ${timing} ${p ? 'has-project' : ''} ${ui.sel === t.id ? 'is-sel' : ''}"
+    data-bubble="${t.id}" data-act="open" data-id="${t.id}" style="--p:${pct};${p ? `--pc:${p.color}` : ''}" title="${esc(tip)}">
+    <span class="bubble-core">${t.priority ? icon('star', 'fill') : ''}</span>
+    <span class="bubble-label">${esc(t.title) || 'Bez nazwy'}</span>
+  </button>`;
+}
+
+function mapHTML(v) {
+  const rated = v.tasks.filter(t => quadOf(t));
+  const rest = v.tasks.filter(t => !quadOf(t)).sort(byOrder);
+  return `<div class="map-legend">
+      <span><i class="lg-axis">←</i>bliżej terminu = bardziej w lewo</span>
+      <span><i class="lg-size"></i>większa = więcej punktów do zrobienia</span>
+      <span><i class="lg-ring"></i>pierścień = postęp listy</span>
+      <span><i class="lg-pulse"></i>pulsuje = po terminie</span>
+      <span>${icon('star', 'fill')}priorytet</span>
+    </div>
+    <div class="map-board" id="mapBoard">
+      ${[1, 2, 3, 4].map(q => `<div class="map-q q${q}" data-q="${q}"><span class="map-q-name">${QUADS[q].name}</span><span class="map-q-sub">${QUADS[q].sub}</span></div>`).join('')}
+      <span class="map-axis top">pilne</span><span class="map-axis top r">niepilne</span>
+      <span class="map-axis side">ważne</span><span class="map-axis side b">nieważne</span>
+      ${rated.map(bubbleHTML).join('')}
+      ${rated.length ? '' : '<p class="map-empty">Przeciągnij tu zadania z listy „Bez oceny” albo oceń je w szczegółach.</p>'}
+    </div>
+    <section class="map-parking" id="mapParking">
+      <h3 class="group">Bez oceny<span>${rest.length}</span></h3>
+      <div class="parking-list">
+        ${rest.map(t => `<button class="pchip" data-bubble="${t.id}" data-act="open" data-id="${t.id}">${esc(t.title) || 'Bez nazwy'}</button>`).join('')
+          || '<p class="hint">Wszystkie otwarte zadania mają ocenę.</p>'}
+      </div>
+      ${rest.length ? '<p class="hint">Przeciągnij zadanie na mapę, żeby nadać mu ważność i pilność.</p>' : ''}
+    </section>`;
+}
+
+// Rozmieszcza bańki: ćwiartka z oceny, poziomo wg terminu, potem rozsuwanie, żeby nic się nie nakładało.
+function layoutMap() {
+  const board = $('#mapBoard');
+  if (!board) return;
+  const W = board.clientWidth;
+  const H = board.clientHeight;
+  const small = W < 560;
+  const pad = small ? 14 : 22;
+  const nodes = $$('.bubble', board).map(el => {
+    const t = taskById(el.dataset.bubble);
+    const q = quadOf(t);
+    const col = q === 1 || q === 3 ? 0 : 1;
+    const row = q <= 2 ? 0 : 1;
+    const box = { x0: col * W / 2 + pad, y0: row * H / 2 + pad + 26, x1: (col + 1) * W / 2 - pad, y1: (row + 1) * H / 2 - pad,
+      qx0: col * W / 2 + 6, qx1: (col + 1) * W / 2 - 6 };
+    const remaining = t.checklist.filter(c => !c.done).length;
+    const r = (small ? 11 : 14) + Math.min(remaining, 6) * (small ? 1.6 : 2.4) + (t.priority ? 2 : 0);
+    const u = urgencyScore(t);
+    const j = hash01(t.id);
+    const x = box.x0 + r + (1 - u) * Math.max(0, box.x1 - box.x0 - 2 * r);
+    const y = box.y0 + r + (t.priority ? 0.05 + j * 0.35 : 0.15 + j * 0.85) * Math.max(0, box.y1 - box.y0 - 2 * r);
+    const lw = Math.min(el.querySelector('.bubble-label').scrollWidth, small ? 92 : 160) + 6;
+    const halo = t.due && t.due <= todayISO() ? 6 : 0; // zaległe i dzisiejsze mają obwódkę
+    return { el, r, x, y, box, lw, halo, left: false };
+  });
+  // Bańka razem z podpisem mieści się w swojej ćwiartce; podpis po prawej, a gdy brak miejsca — po lewej.
+  const clamp = n => {
+    const { box } = n;
+    n.left = n.x + n.r + n.lw > box.qx1;
+    const minX = n.left ? Math.max(box.x0 + n.r, box.qx0 + n.lw + n.r) : box.x0 + n.r;
+    const maxX = n.left ? box.x1 - n.r : Math.min(box.x1 - n.r, box.qx1 - n.lw - n.r);
+    if (minX <= maxX) n.x = Math.min(Math.max(n.x, minX), maxX);
+    n.y = Math.min(Math.max(n.y, box.y0 + n.r), Math.max(box.y0 + n.r, box.y1 - n.r));
+  };
+  nodes.forEach(clamp);
+  const rect = n => {
+    const h = Math.max(n.r, 10) + n.halo + 3;
+    return n.left
+      ? { a: n.x - n.r - n.lw, b: n.x + n.r + n.halo, c: n.y - h, d: n.y + h }
+      : { a: n.x - n.r - n.halo, b: n.x + n.r + n.lw, c: n.y - h, d: n.y + h };
+  };
+  for (let it = 0; it < 120; it++) {
+    let moved = false;
+    for (let i = 0; i < nodes.length; i++) {
+      for (let k = i + 1; k < nodes.length; k++) {
+        const A = nodes[i];
+        const B = nodes[k];
+        const ra = rect(A);
+        const rb = rect(B);
+        const ox = Math.min(ra.b, rb.b) - Math.max(ra.a, rb.a);
+        const oy = Math.min(ra.d, rb.d) - Math.max(ra.c, rb.c);
+        if (ox <= 0 || oy <= 0) continue;
+        moved = true;
+        if (oy < ox) {
+          const s = (oy / 2 + 1) * (A.y <= B.y ? 1 : -1);
+          A.y -= s; B.y += s;
+        } else {
+          const s = (ox / 2 + 1) * (A.x <= B.x ? 1 : -1);
+          A.x -= s; B.x += s;
+        }
+        clamp(A); clamp(B);
+      }
+    }
+    if (!moved) break;
+  }
+  for (const n of nodes) {
+    n.el.classList.toggle('label-left', n.left);
+    Object.assign(n.el.style, { left: `${n.x - n.r}px`, top: `${n.y - n.r}px`, width: `${2 * n.r}px`, height: `${2 * n.r}px` });
+  }
+}
+
+function eisGlyph(t) {
+  const imp = t.important;
+  const urg = t.urgent;
+  if (imp == null && urg == null) return '';
+  const full = imp != null && urg != null;
+  const fits = q => (imp == null || imp === q <= 2) && (urg == null || urg === (q === 1 || q === 3));
+  const cells = [[1, 0, 0], [2, 1, 0], [3, 0, 1], [4, 1, 1]];
+  return `<svg class="eglyph" viewBox="0 0 14 14" aria-hidden="true">${cells.map(([q, c, r]) =>
+    `<rect x="${c * 7 + 0.5}" y="${r * 7 + 0.5}" width="6" height="6" rx="1.6" class="gq${q} ${fits(q) ? (full ? 'on' : 'half') : ''}"/>`).join('')}</svg>`;
+}
+
+function eisLabel(t) {
   const parts = [];
   if (t.important != null) parts.push(t.important ? 'ważne' : 'nieważne');
   if (t.urgent != null) parts.push(t.urgent ? 'pilne' : 'niepilne');
-  return parts.length ? `<span class="eis">${parts.join(' · ')}</span>` : '';
+  return parts.join(' · ');
+}
+
+function eisenhowerChip(t) {
+  const q = quadOf(t);
+  if (q) return `<span class="eis q${q}" title="${eisLabel(t)}">${eisGlyph(t)}${QUADS[q].name}</span>`;
+  const label = eisLabel(t);
+  return label ? `<span class="eis" title="${label}">${eisGlyph(t)}${label}</span>` : '';
 }
 
 function rowHTML(t, v) {
@@ -472,7 +633,7 @@ function rowHTML(t, v) {
   if (t.comments.length) meta.push(`<span class="meta-i">${icon('chat')}${t.comments.length}</span>`);
   if (t.notes.trim()) meta.push(`<span class="meta-i" title="Ma notatkę">${icon('note')}</span>`);
   const drag = (v.sortable || v.draggable) && !t.done;
-  return `<li class="task ${t.done ? 'is-done' : ''} ${ui.sel === t.id ? 'is-sel' : ''}" data-id="${t.id}" ${drag ? 'draggable="true"' : ''}>
+  return `<li class="task ${t.done ? 'is-done' : ''} ${ui.sel === t.id ? 'is-sel' : ''} ${t.done ? '' : `eq${quadOf(t)}`}" data-id="${t.id}" ${drag ? 'draggable="true"' : ''}>
     <button class="check" data-act="toggle-done" data-id="${t.id}" aria-label="${t.done ? 'Przywróć' : 'Ukończ'}">${icon('check')}</button>
     <div class="task-body" data-act="open" data-id="${t.id}" tabindex="0" role="button">
       <div class="task-title">${esc(t.title) || '<em class="muted">Bez nazwy</em>'}</div>
@@ -564,7 +725,7 @@ function renderDetail() {
             <button class="${t.urgent === false ? 'on' : ''}" data-act="eis" data-k="urgent" data-v="0">Niepilne</button>
           </div>
         </div>
-        ${quadOf(t) ? `<p class="eis-hint"><span class="eis q${quadOf(t)}">${QUADS[quadOf(t)].name}</span>${QUADS[quadOf(t)].hint}</p>` : ''}
+        ${quadOf(t) ? `<p class="eis-hint"><span class="eis q${quadOf(t)}">${eisGlyph(t)}${QUADS[quadOf(t)].name}</span>${QUADS[quadOf(t)].hint}</p>` : ''}
         <label class="field">
           <span class="field-label">${icon('repeat')}Powtarzanie</span>
           <select data-field="repeat">
@@ -631,7 +792,7 @@ function renderTabbar() {
     tab('#/priority', 'star', 'Priorytet', v === 'priority', c.priority) +
     tab('#/today', 'sun', 'Dziś', v === 'today', c.today) +
     tab('#/projects', 'grid', 'Projekty', v === 'projects' || v === 'project', 0) +
-    tab('#/search', 'search', 'Szukaj', v === 'search', 0);
+    tab('#/matrix', 'matrix', 'Macierz', v === 'matrix', 0);
 }
 
 /* ---------- akcje ---------- */
@@ -992,6 +1153,10 @@ document.addEventListener('click', e => {
       if (confirm(`Trwale usunąć ${n} ukończonych zadań?`)) { state.tasks = state.tasks.filter(x => !x.done); commit(); }
       break;
     }
+    case 'matrix-mode':
+      try { localStorage.setItem(MATRIX_MODE_KEY, el.dataset.v); } catch { /* tylko na teraz */ }
+      renderMain();
+      break;
     case 'eis':
       if (t) { const k = el.dataset.k; const val = el.dataset.v === '1'; t[k] = t[k] === val ? null : val; commit(); }
       break;
@@ -1250,7 +1415,7 @@ function touchEnd(e) {
   document.body.classList.remove('touch-dragging');
   touchReset();
   suppressClick = true;
-  setTimeout(() => { suppressClick = false; }, 400);
+  setTimeout(() => { suppressClick = false; }, 150);
   if (e.type === 'touchcancel' || !target) return;
   if (target.zone) dropOn(target.zone.dataset.drop, id);
   else reorder(id, target.li.dataset.id, target.after);
@@ -1265,6 +1430,75 @@ document.addEventListener('click', e => {
   e.preventDefault();
   e.stopPropagation();
 }, true);
+
+/* ---------- przeciąganie baniek na mapie ---------- */
+
+let bub = null;
+
+function mapDropTarget(x, y) {
+  const parking = $('#mapParking');
+  if (parking) {
+    const r = parking.getBoundingClientRect();
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return 0;
+  }
+  const board = $('#mapBoard');
+  if (!board) return null;
+  const r = board.getBoundingClientRect();
+  if (x < r.left || x > r.right || y < r.top || y > r.bottom) return null;
+  const right = x > r.left + r.width / 2;
+  const bottom = y > r.top + r.height / 2;
+  return bottom ? (right ? 4 : 3) : (right ? 2 : 1);
+}
+
+document.addEventListener('pointerdown', e => {
+  const el = e.target.closest('[data-bubble]');
+  if (!el || e.button > 0) return;
+  bub = { el, id: el.dataset.bubble, x0: e.clientX, y0: e.clientY, ghost: null, target: null };
+  try { el.setPointerCapture(e.pointerId); } catch { /* starsze przeglądarki */ }
+});
+
+document.addEventListener('pointermove', e => {
+  if (!bub) return;
+  if (!bub.ghost) {
+    if (Math.hypot(e.clientX - bub.x0, e.clientY - bub.y0) < 6) return;
+    const r = bub.el.getBoundingClientRect();
+    bub.ghost = bub.el.cloneNode(true);
+    bub.ghost.classList.add('bubble-ghost');
+    Object.assign(bub.ghost.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    bub.dx = e.clientX - r.left;
+    bub.dy = e.clientY - r.top;
+    document.body.append(bub.ghost);
+    bub.el.classList.add('drag-src');
+    document.body.classList.add('bubble-dragging');
+  }
+  bub.ghost.style.left = `${e.clientX - bub.dx}px`;
+  bub.ghost.style.top = `${e.clientY - bub.dy}px`;
+  bub.target = mapDropTarget(e.clientX, e.clientY);
+  $$('.map-q, .map-parking').forEach(z => z.classList.toggle('drop-target',
+    bub.target === 0 ? z.classList.contains('map-parking') : z.dataset.q === String(bub.target)));
+});
+
+function bubbleEnd(e) {
+  if (!bub) return;
+  const { ghost, id, target } = bub;
+  bub = null;
+  if (!ghost) return; // zwykłe kliknięcie — otworzy zadanie
+  ghost.remove();
+  document.body.classList.remove('bubble-dragging');
+  $$('.drag-src').forEach(x => x.classList.remove('drag-src'));
+  $$('.map-q, .map-parking').forEach(z => z.classList.remove('drop-target'));
+  suppressClick = true;
+  setTimeout(() => { suppressClick = false; }, 150);
+  const t = taskById(id);
+  if (e.type === 'pointerup' && t && target != null && target !== quadOf(t)) dropOn(`quad:${target}`, id);
+  else renderMain();
+}
+
+document.addEventListener('pointerup', bubbleEnd);
+document.addEventListener('pointercancel', bubbleEnd);
+
+let mapResizeTimer;
+window.addEventListener('resize', () => { clearTimeout(mapResizeTimer); mapResizeTimer = setTimeout(layoutMap, 120); });
 
 /* ---------- start ---------- */
 
