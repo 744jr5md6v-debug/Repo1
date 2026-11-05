@@ -1,5 +1,5 @@
 // Service worker: aplikacja działa offline (cache plików aplikacji).
-const CACHE = 'ogarnij-v2';
+const CACHE = 'ogarnij-v3';
 const ASSETS = [
   './', 'index.html', 'styles.css', 'app.js', 'sync.js', 'config.js', 'vendor/supabase.js', 'manifest.webmanifest',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',

@@ -13,7 +13,11 @@ Prosty menedżer zadań w stylu Nozbe, działający w przeglądarce (komputer) i
   etykiety, notatka, lista kontrolna, komentarze z datą (linki są klikalne).
 - Szybkie dodawanie: `Zadzwonić do Ani #Praca @telefon !`
   (`#` – projekt, `@` – etykieta, nieistniejąca zostanie utworzona, `!` – priorytet).
-- Przeciąganie zadania (komputer) na projekt / etykietę / Priorytet / Na dziś w pasku bocznym.
+- **Macierz Eisenhowera** – każde zadanie można oznaczyć jako ważne/nieważne i pilne/niepilne;
+  widok *Macierz* pokazuje cztery ćwiartki (Zrób teraz, Zaplanuj, Deleguj, Odpuść) i zadania bez oceny.
+- Przeciąganie zadania (komputer) na projekt / etykietę / Priorytet / Na dziś w pasku bocznym albo na ćwiartkę macierzy.
+- **Przeciąganie palcem na telefonie** – przytrzymaj zadanie ok. pół sekundy i przesuń, żeby zmienić kolejność
+  albo przenieść je do innej ćwiartki macierzy (lista sama się przewija przy krawędzi ekranu).
 - Cofanie ukończenia i usunięcia, wyszukiwarka, motyw jasny/ciemny, eksport i import kopii (JSON).
 - **Synchronizacja między laptopem a telefonem** przez bazę danych Supabase (opis niżej).
 - Skróty: `n` – nowe zadanie, `/` – szukaj, `Esc` – zamknij.

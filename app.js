@@ -10,6 +10,12 @@ const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#3b82f6'
 const MONTHS = ['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'];
 const MONTHS_LONG = ['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'lipca', 'sierpnia', 'września', 'października', 'listopada', 'grudnia'];
 const DAYS = ['niedz.', 'pon.', 'wt.', 'śr.', 'czw.', 'pt.', 'sob.'];
+const QUADS = {
+  1: { name: 'Zrób teraz', sub: 'ważne i pilne', hint: 'zajmij się tym jak najszybciej' },
+  2: { name: 'Zaplanuj', sub: 'ważne, niepilne', hint: 'wyznacz termin i zrób sam' },
+  3: { name: 'Deleguj', sub: 'pilne, nieważne', hint: 'przekaż komuś albo załatw szybko' },
+  4: { name: 'Odpuść', sub: 'niepilne, nieważne', hint: 'odłóż albo usuń' },
+};
 const REPEATS = { '': 'Nie powtarzaj', daily: 'Codziennie', weekdays: 'W dni robocze', weekly: 'Co tydzień', monthly: 'Co miesiąc', yearly: 'Co rok' };
 
 const ICONS = {
@@ -37,6 +43,9 @@ const ICONS = {
   cloud: 'M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z',
   cloudOff: 'M2 2l20 20 M5.78 5.78A7 7 0 0 0 9 19h8.5a4.5 4.5 0 0 0 1.31-.2 M21.53 16.5A4.5 4.5 0 0 0 17.5 10h-1.79A7 7 0 0 0 10 5.07',
   refresh: 'M21 12a9 9 0 1 1-2.64-6.36L21 8 M21 3v5h-5',
+  matrix: 'M12 3v18 M3 12h18 M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z',
+  flag: 'M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z M4 22v-7',
+  clock: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z M12 6v6l4 2',
 };
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -97,7 +106,7 @@ function nextDue(from, rep) {
 function newTask(fields = {}) {
   return {
     id: uid(), title: '', projectId: null, priority: false, due: null, repeat: '',
-    labels: [], notes: '', checklist: [], comments: [],
+    important: null, urgent: null, labels: [], notes: '', checklist: [], comments: [],
     done: false, doneAt: null, createdAt: Date.now(),
     order: Math.min(0, ...state.tasks.map(t => t.order)) - 1,
     ...fields,
@@ -114,7 +123,7 @@ function seed() {
   const t = todayISO();
   let o = 0;
   const mk = f => ({
-    id: uid(), title: '', projectId: null, priority: false, due: null, repeat: '', labels: [], notes: '',
+    id: uid(), title: '', projectId: null, priority: false, due: null, repeat: '', important: null, urgent: null, labels: [], notes: '',
     checklist: [], comments: [], done: false, doneAt: null, createdAt: Date.now(), order: o++, ...f,
   });
   return {
@@ -132,8 +141,8 @@ function seed() {
         comments: [{ id: uid(), text: 'Komentarze działają jak notatki z historią — dobre do zapisywania postępów.', ts: Date.now() }],
       }),
       mk({ title: 'Kupić baterie AA', labels: [l3.id] }),
-      mk({ title: 'Zadzwonić do księgowej', projectId: p1.id, priority: true, due: t, labels: [l1.id] }),
-      mk({ title: 'Przygotować prezentację na spotkanie', projectId: p1.id, priority: true, due: addDays(t, 3), labels: [l2.id] }),
+      mk({ title: 'Zadzwonić do księgowej', projectId: p1.id, priority: true, due: t, labels: [l1.id], important: true, urgent: true }),
+      mk({ title: 'Przygotować prezentację na spotkanie', projectId: p1.id, priority: true, due: addDays(t, 3), labels: [l2.id], important: true, urgent: false }),
       mk({ title: 'Odpisać na maile od klientów', projectId: p1.id, repeat: 'weekdays', due: t, labels: [l2.id] }),
       mk({ title: 'Wymienić filtr w okapie', projectId: p2.id }),
       mk({ title: 'Zapłacić rachunki', projectId: p2.id, repeat: 'monthly', due: addDays(t, 5), labels: [l2.id] }),
@@ -147,7 +156,7 @@ function normalize(s) {
   s.projects = Array.isArray(s.projects) ? s.projects : [];
   s.labels = Array.isArray(s.labels) ? s.labels : [];
   s.tasks = (Array.isArray(s.tasks) ? s.tasks : []).map((t, i) => ({
-    repeat: '', labels: [], notes: '', checklist: [], comments: [], priority: false,
+    repeat: '', labels: [], notes: '', checklist: [], comments: [], priority: false, important: null, urgent: null,
     projectId: null, due: null, done: false, doneAt: null, createdAt: Date.now(), order: i, ...t,
   }));
   return s;
@@ -226,6 +235,14 @@ function route() {
   render();
 }
 
+/* ---------- macierz Eisenhowera ---------- */
+
+// 0 = jeszcze nie oceniono; 1–4 = ćwiartki
+function quadOf(t) {
+  if (t.important == null || t.urgent == null) return 0;
+  return t.important ? (t.urgent ? 1 : 2) : (t.urgent ? 3 : 4);
+}
+
 /* ---------- model widoku ---------- */
 
 const byOrder = (a, b) => a.order - b.order;
@@ -255,6 +272,8 @@ function viewModel() {
     }
     case 'projects':
       return { title: 'Projekty', projectsGrid: true, noAdd: true };
+    case 'matrix':
+      return { title: 'Macierz Eisenhowera', matrix: true, noAdd: true, tasks: open };
     case 'project': {
       const p = projectById(ui.arg);
       if (!p) break;
@@ -285,6 +304,7 @@ const counts = () => {
     priority: open.filter(t => t.priority).length,
     today: open.filter(t => t.due && t.due <= today).length,
     overdue: open.filter(t => t.due && t.due < today).length,
+    q1: open.filter(t => quadOf(t) === 1).length,
     project: id => open.filter(t => t.projectId === id).length,
     label: id => open.filter(t => t.labels.includes(id)).length,
   };
@@ -316,6 +336,7 @@ function renderSidebar() {
       ${navItem('#/priority', icon('star'), 'Priorytet', c.priority, v === 'priority', 'priority')}
       ${navItem('#/today', icon('sun'), 'Na dziś', c.today, v === 'today', 'today', c.overdue ? `<span class="badge-overdue" title="Zaległe">${c.overdue}</span>` : '')}
       ${navItem('#/upcoming', icon('calendar'), 'Nadchodzące', 0, v === 'upcoming')}
+      ${navItem('#/matrix', icon('matrix'), 'Macierz', c.q1, v === 'matrix')}
       ${navItem('#/search', icon('search'), 'Szukaj', 0, v === 'search')}
       ${navItem('#/done', icon('done'), 'Ukończone', 0, v === 'done')}
     </nav>
@@ -384,7 +405,7 @@ function renderMain() {
   $('#quickadd').hidden = !!v.noAdd;
   $('#searchBar').hidden = !v.search;
   if (v.search && $('#searchInput').value !== ui.q) $('#searchInput').value = ui.q;
-  $('#list').innerHTML = v.projectsGrid ? projectsGridHTML() : listHTML(v);
+  $('#list').innerHTML = v.projectsGrid ? projectsGridHTML() : v.matrix ? matrixHTML(v) : listHTML(v);
   document.title = `${v.title} · Ogarnij`;
 }
 
@@ -403,9 +424,44 @@ function projectsGridHTML() {
   }).join('')}</div>`;
 }
 
+function matrixHTML(v) {
+  const mv = { draggable: true, matrix: true };
+  const of = q => v.tasks.filter(t => quadOf(t) === q).sort(byOrder);
+  const quad = q => {
+    const tasks = of(q);
+    return `<section class="quad q${q}" data-drop="quad:${q}">
+      <header><b>${QUADS[q].name}</b><span class="quad-sub">${QUADS[q].sub}</span><span class="count">${tasks.length}</span></header>
+      <ul class="tasks">${tasks.map(t => rowHTML(t, mv)).join('')}</ul>
+      <form class="inline-add" data-quad="${q}"><input name="text" placeholder="Dodaj zadanie…" autocomplete="off" enterkeyhint="done"></form>
+    </section>`;
+  };
+  const rest = of(0);
+  return `<div class="matrix">
+      <span class="axis col">Pilne</span><span class="axis col">Niepilne</span>
+      ${[1, 2, 3, 4].map(quad).join('')}
+    </div>
+    <section class="quad-rest" data-drop="quad:0">
+      <h3 class="group">Bez oceny<span>${rest.length}</span></h3>
+      ${rest.length
+        ? `<p class="hint">Przeciągnij zadanie do ćwiartki (na telefonie: przytrzymaj i przesuń) albo ustaw ważność i pilność w szczegółach zadania.</p>
+           <ul class="tasks">${rest.map(t => rowHTML(t, mv)).join('')}</ul>`
+        : '<p class="hint">Wszystkie otwarte zadania mają ocenę.</p>'}
+    </section>`;
+}
+
+function eisenhowerChip(t) {
+  const q = quadOf(t);
+  if (q) return `<span class="eis q${q}" title="${QUADS[q].sub}">${QUADS[q].name}</span>`;
+  const parts = [];
+  if (t.important != null) parts.push(t.important ? 'ważne' : 'nieważne');
+  if (t.urgent != null) parts.push(t.urgent ? 'pilne' : 'niepilne');
+  return parts.length ? `<span class="eis">${parts.join(' · ')}</span>` : '';
+}
+
 function rowHTML(t, v) {
   const meta = [];
   const p = t.projectId && projectById(t.projectId);
+  if (!v.matrix && !t.done) { const e = eisenhowerChip(t); if (e) meta.push(e); }
   if (p && v.kind !== 'project') meta.push(`<span class="chip"><span class="dot" style="background:${p.color}"></span>${esc(p.name)}</span>`);
   if (t.due) meta.push(`<span class="meta-i due ${t.done ? '' : dueClass(t.due)}">${icon('calendar')}${fmtDue(t.due)}${t.repeat ? icon('repeat') : ''}</span>`);
   for (const id of t.labels) {
@@ -415,7 +471,7 @@ function rowHTML(t, v) {
   if (t.checklist.length) meta.push(`<span class="meta-i">${icon('checklist')}${t.checklist.filter(c => c.done).length}/${t.checklist.length}</span>`);
   if (t.comments.length) meta.push(`<span class="meta-i">${icon('chat')}${t.comments.length}</span>`);
   if (t.notes.trim()) meta.push(`<span class="meta-i" title="Ma notatkę">${icon('note')}</span>`);
-  const drag = v.sortable && !t.done;
+  const drag = (v.sortable || v.draggable) && !t.done;
   return `<li class="task ${t.done ? 'is-done' : ''} ${ui.sel === t.id ? 'is-sel' : ''}" data-id="${t.id}" ${drag ? 'draggable="true"' : ''}>
     <button class="check" data-act="toggle-done" data-id="${t.id}" aria-label="${t.done ? 'Przywróć' : 'Ukończ'}">${icon('check')}</button>
     <div class="task-body" data-act="open" data-id="${t.id}" tabindex="0" role="button">
@@ -494,6 +550,21 @@ function renderDetail() {
             </div>
           </div>
         </div>
+        <div class="field">
+          <span class="field-label">${icon('flag')}Ważność</span>
+          <div class="seg">
+            <button class="${t.important === true ? 'on' : ''}" data-act="eis" data-k="important" data-v="1">Ważne</button>
+            <button class="${t.important === false ? 'on' : ''}" data-act="eis" data-k="important" data-v="0">Nieważne</button>
+          </div>
+        </div>
+        <div class="field">
+          <span class="field-label">${icon('clock')}Pilność</span>
+          <div class="seg">
+            <button class="${t.urgent === true ? 'on' : ''}" data-act="eis" data-k="urgent" data-v="1">Pilne</button>
+            <button class="${t.urgent === false ? 'on' : ''}" data-act="eis" data-k="urgent" data-v="0">Niepilne</button>
+          </div>
+        </div>
+        ${quadOf(t) ? `<p class="eis-hint"><span class="eis q${quadOf(t)}">${QUADS[quadOf(t)].name}</span>${QUADS[quadOf(t)].hint}</p>` : ''}
         <label class="field">
           <span class="field-label">${icon('repeat')}Powtarzanie</span>
           <select data-field="repeat">
@@ -607,11 +678,11 @@ function findByName(list, token) {
   return list.find(x => norm(x.name) === k) || list.find(x => norm(x.name).startsWith(k));
 }
 
-function quickAdd(text) {
+function quickAdd(text, extra = {}) {
   let title = text.trim();
   if (!title) return;
   const v = viewModel();
-  const t = newTask({ ...(v.ctx || {}), labels: [...((v.ctx && v.ctx.labels) || [])] });
+  const t = newTask({ ...(v.ctx || {}), ...extra, labels: [...((v.ctx && v.ctx.labels) || [])] });
   title = title.replace(/(^|\s)!(?=\s|$)/g, () => { t.priority = true; return ' '; });
   title = title.replace(/(^|\s)#([^\s#@!]+)/g, (m, sp, name) => {
     const p = findByName(state.projects, name);
@@ -667,6 +738,12 @@ function dropOn(target, id) {
   else if (kind === 'today') { t.due = todayISO(); msg = 'Termin: dziś'; }
   else if (kind === 'project') { t.projectId = arg; msg = `Przeniesiono do: ${projectById(arg).name}`; }
   else if (kind === 'label') { if (!t.labels.includes(arg)) t.labels.push(arg); msg = `Dodano etykietę: ${labelById(arg).name}`; }
+  else if (kind === 'quad') {
+    const q = +arg;
+    t.important = q ? q <= 2 : null;
+    t.urgent = q ? q === 1 || q === 3 : null;
+    msg = q ? `Macierz: ${QUADS[q].name}` : 'Usunięto ocenę ważności i pilności';
+  }
   commit();
   toast(msg);
 }
@@ -915,6 +992,9 @@ document.addEventListener('click', e => {
       if (confirm(`Trwale usunąć ${n} ukończonych zadań?`)) { state.tasks = state.tasks.filter(x => !x.done); commit(); }
       break;
     }
+    case 'eis':
+      if (t) { const k = el.dataset.k; const val = el.dataset.v === '1'; t[k] = t[k] === val ? null : val; commit(); }
+      break;
     case 'due': if (t) { t.due = el.dataset.v === '' ? null : addDays(todayISO(), +el.dataset.v); commit(); } break;
     case 'toggle-label':
       if (t) { t.labels = t.labels.includes(id) ? t.labels.filter(x => x !== id) : [...t.labels, id]; commit(); }
@@ -960,6 +1040,16 @@ $('#quickadd').addEventListener('submit', e => {
   e.preventDefault();
   quickAdd($('#quickInput').value);
   $('#quickInput').value = '';
+});
+
+$('#list').addEventListener('submit', e => {
+  const form = e.target.closest('form[data-quad]');
+  if (!form) return;
+  e.preventDefault();
+  const q = +form.dataset.quad;
+  quickAdd(form.elements.text.value, { important: q <= 2, urgent: q === 1 || q === 3 });
+  const input = $(`form[data-quad="${q}"] input`);
+  if (input) input.focus();
 });
 
 $('#searchInput').addEventListener('input', e => { ui.q = e.target.value; renderMain(); });
@@ -1059,6 +1149,122 @@ document.addEventListener('drop', e => {
     reorder(dragId, li.dataset.id, e.clientY > r.top + r.height / 2);
   }
 });
+
+/* ---------- przeciąganie palcem (telefon, tablet) ---------- */
+// Przytrzymaj zadanie ~0,4 s, a potem przesuń: zmiana kolejności albo upuszczenie na ćwiartkę macierzy.
+
+const touch = { timer: null, id: null, li: null, ghost: null, x0: 0, y0: 0, dy: 0, x: 0, y: 0, active: false, target: null };
+let suppressClick = false;
+
+function touchReset() {
+  clearTimeout(touch.timer);
+  Object.assign(touch, { timer: null, id: null, li: null, active: false, target: null });
+}
+
+function touchClearMarks() {
+  $$('.drop-before, .drop-after, .drop-target').forEach(x => x.classList.remove('drop-before', 'drop-after', 'drop-target'));
+}
+
+function touchStartDrag() {
+  const li = touch.li;
+  if (!li || !li.isConnected) { touchReset(); return; }
+  const r = li.getBoundingClientRect();
+  const ghost = li.cloneNode(true);
+  ghost.classList.add('drag-ghost');
+  ghost.classList.remove('is-sel');
+  Object.assign(ghost.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px` });
+  document.body.append(ghost);
+  Object.assign(touch, { ghost, dy: touch.y - r.top, active: true });
+  li.classList.add('dragging');
+  document.body.classList.add('touch-dragging');
+  if (navigator.vibrate) navigator.vibrate(15);
+  requestAnimationFrame(touchAutoScroll);
+}
+
+function touchFindTarget() {
+  const el = document.elementFromPoint(touch.x, touch.y);
+  if (!el) return null;
+  const li = el.closest('ul[data-sortable="1"] li.task');
+  if (li && li.dataset.id !== touch.id && touch.li && li.parentElement === touch.li.parentElement) {
+    const r = li.getBoundingClientRect();
+    return { li, after: touch.y > r.top + r.height / 2 };
+  }
+  const zone = el.closest('[data-drop]');
+  if (zone && !(touch.li && zone.contains(touch.li))) return { zone };
+  return null;
+}
+
+function touchMark() {
+  touchClearMarks();
+  touch.target = touchFindTarget();
+  const t = touch.target;
+  if (t && t.zone) t.zone.classList.add('drop-target');
+  else if (t) t.li.classList.add(t.after ? 'drop-after' : 'drop-before');
+}
+
+function touchAutoScroll() {
+  if (!touch.active) return;
+  const wrap = $('#list');
+  const r = wrap.getBoundingClientRect();
+  const bottom = Math.min(r.bottom, window.innerHeight - ($('#tabbar').offsetHeight || 0));
+  const edge = 50;
+  // 4–20 px na klatkę: im bliżej krawędzi (lub za nią), tym szybciej
+  const speed = depth => Math.round(4 + 16 * Math.min(1, depth / edge));
+  let step = 0;
+  if (touch.y < r.top + edge) step = -speed(r.top + edge - touch.y);
+  else if (touch.y > bottom - edge) step = speed(touch.y - bottom + edge);
+  if (step) { wrap.scrollTop += step; touchMark(); }
+  requestAnimationFrame(touchAutoScroll);
+}
+
+document.addEventListener('touchstart', e => {
+  if (e.touches.length !== 1) { touchReset(); return; }
+  const li = e.target.closest('li.task[draggable="true"]');
+  if (!li) return;
+  const p = e.touches[0];
+  touchReset();
+  Object.assign(touch, { id: li.dataset.id, li, x0: p.clientX, y0: p.clientY, x: p.clientX, y: p.clientY });
+  touch.timer = setTimeout(touchStartDrag, 400);
+}, { passive: true });
+
+document.addEventListener('touchmove', e => {
+  if (!touch.li) return;
+  const p = e.touches[0];
+  touch.x = p.clientX;
+  touch.y = p.clientY;
+  if (!touch.active) {
+    if (Math.hypot(p.clientX - touch.x0, p.clientY - touch.y0) > 10) touchReset(); // to jest przewijanie
+    return;
+  }
+  e.preventDefault();
+  touch.ghost.style.top = `${p.clientY - touch.dy}px`;
+  touchMark();
+}, { passive: false });
+
+function touchEnd(e) {
+  if (!touch.active) { touchReset(); return; }
+  const { id, target } = touch;
+  touch.ghost.remove();
+  touchClearMarks();
+  $$('.dragging').forEach(x => x.classList.remove('dragging'));
+  document.body.classList.remove('touch-dragging');
+  touchReset();
+  suppressClick = true;
+  setTimeout(() => { suppressClick = false; }, 400);
+  if (e.type === 'touchcancel' || !target) return;
+  if (target.zone) dropOn(target.zone.dataset.drop, id);
+  else reorder(id, target.li.dataset.id, target.after);
+}
+
+document.addEventListener('touchend', touchEnd);
+document.addEventListener('touchcancel', touchEnd);
+document.addEventListener('contextmenu', e => { if (touch.li) e.preventDefault(); });
+document.addEventListener('click', e => {
+  if (!suppressClick) return;
+  suppressClick = false;
+  e.preventDefault();
+  e.stopPropagation();
+}, true);
 
 /* ---------- start ---------- */
 
