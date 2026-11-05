@@ -7,7 +7,13 @@
 const STORE_KEY = 'ogarnij.v1';
 const THEME_KEY = 'ogarnij.theme';
 const MATRIX_MODE_KEY = 'ogarnij.matrixMode';
-const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#3b82f6', '#8b5cf6', '#ec4899', '#64748b'];
+// Japandi: glina, persymona, ochra, mech, matcha, indygo, glicynia, sakura, kamień
+const COLORS = ['#b04a35', '#c9763a', '#b4800f', '#6b7d4f', '#1a8a68', '#2f68a3', '#7a5c8e', '#b5677d', '#7d756a'];
+// Kolory z pierwszej wersji aplikacji → odpowiedniki japandi (zmiana zsynchronizuje się na wszystkie urządzenia)
+const OLD_COLORS = {
+  '#ef4444': '#b04a35', '#f97316': '#c9763a', '#eab308': '#b4800f', '#22c55e': '#6b7d4f', '#14b8a6': '#1a8a68',
+  '#3b82f6': '#2f68a3', '#8b5cf6': '#7a5c8e', '#ec4899': '#b5677d', '#64748b': '#7d756a',
+};
 const MONTHS = ['sty', 'lut', 'mar', 'kwi', 'maj', 'cze', 'lip', 'sie', 'wrz', 'paź', 'lis', 'gru'];
 const MONTHS_LONG = ['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'lipca', 'sierpnia', 'września', 'października', 'listopada', 'grudnia'];
 const DAYS = ['niedz.', 'pon.', 'wt.', 'śr.', 'czw.', 'pt.', 'sob.'];
@@ -47,6 +53,10 @@ const ICONS = {
   matrix: 'M12 3v18 M3 12h18 M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z',
   flag: 'M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z M4 22v-7',
   clock: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z M12 6v6l4 2',
+  gauge: 'M3 13a9 9 0 0 1 18 0 M12 13l4-4 M3 13h2 M19 13h2 M12 4v2 M5.6 6.6l1.4 1.4 M18.4 6.6 17 8 M4 19h16',
+  flame: 'M12 22c4 0 7-2.7 7-7 0-4-3-6.5-4-9.5-1 2-2 3-3.5 3.5C11 6 10.5 4 11 2 7 4.5 5 9 5 15c0 4.3 3 7 7 7z',
+  trend: 'M3 17l6-6 4 4 8-8 M15 7h6v6',
+  alert: 'M12 9v4 M12 17h.01 M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z',
 };
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -115,12 +125,12 @@ function newTask(fields = {}) {
 }
 
 function seed() {
-  const p1 = { id: uid(), name: 'Praca', color: '#3b82f6' };
-  const p2 = { id: uid(), name: 'Dom', color: '#22c55e' };
-  const p3 = { id: uid(), name: 'Urlop 2027', color: '#f97316' };
-  const l1 = { id: uid(), name: 'telefon', color: '#8b5cf6' };
-  const l2 = { id: uid(), name: 'komputer', color: '#14b8a6' };
-  const l3 = { id: uid(), name: 'na mieście', color: '#ec4899' };
+  const p1 = { id: uid(), name: 'Praca', color: '#2f68a3' };
+  const p2 = { id: uid(), name: 'Dom', color: '#6b7d4f' };
+  const p3 = { id: uid(), name: 'Urlop 2027', color: '#c9763a' };
+  const l1 = { id: uid(), name: 'telefon', color: '#7a5c8e' };
+  const l2 = { id: uid(), name: 'komputer', color: '#1a8a68' };
+  const l3 = { id: uid(), name: 'na mieście', color: '#b5677d' };
   const t = todayISO();
   let o = 0;
   const mk = f => ({
@@ -156,8 +166,9 @@ function seed() {
 function normalize(s) {
   s.projects = Array.isArray(s.projects) ? s.projects : [];
   s.labels = Array.isArray(s.labels) ? s.labels : [];
+  for (const x of [...s.projects, ...s.labels]) if (OLD_COLORS[x.color]) x.color = OLD_COLORS[x.color];
   s.tasks = (Array.isArray(s.tasks) ? s.tasks : []).map((t, i) => ({
-    repeat: '', labels: [], notes: '', checklist: [], comments: [], priority: false, important: null, urgent: null,
+    repeat: '', labels: [], notes: '', checklist: [], comments: [], history: [], priority: false, important: null, urgent: null,
     projectId: null, due: null, done: false, doneAt: null, createdAt: Date.now(), order: i, ...t,
   }));
   return s;
@@ -231,7 +242,10 @@ function closeTask() {
 function route() {
   const prevView = ui.view + ui.arg;
   parseRoute();
-  if (prevView !== ui.view + ui.arg) ui.showDone = false;
+  if (prevView !== ui.view + ui.arg) {
+    ui.showDone = false;
+    $('#list').scrollTop = 0; // nowy widok zaczyna się od góry
+  }
   setDrawer(false);
   render();
 }
@@ -273,6 +287,8 @@ function viewModel() {
     }
     case 'projects':
       return { title: 'Projekty', projectsGrid: true, noAdd: true };
+    case 'dashboard':
+      return { title: 'Pulpit', dashboard: true, noAdd: true };
     case 'matrix':
       return { title: 'Macierz', matrix: true, noAdd: true, tasks: open };
     case 'project': {
@@ -333,6 +349,7 @@ function renderSidebar() {
   $('#sidebar').innerHTML = `
     <div class="brand"><img src="icons/icon.svg" alt="" width="28" height="28"><span>Ogarnij</span></div>
     <nav class="nav">
+      ${navItem('#/dashboard', icon('gauge'), 'Pulpit', 0, v === 'dashboard')}
       ${navItem('#/inbox', icon('inbox'), 'Skrzynka', c.inbox, v === 'inbox', 'inbox')}
       ${navItem('#/priority', icon('star'), 'Priorytet', c.priority, v === 'priority', 'priority')}
       ${navItem('#/today', icon('sun'), 'Na dziś', c.today, v === 'today', 'today', c.overdue ? `<span class="badge-overdue" title="Zaległe">${c.overdue}</span>` : '')}
@@ -414,7 +431,8 @@ function renderMain() {
   $('#searchBar').hidden = !v.search;
   if (v.search && $('#searchInput').value !== ui.q) $('#searchInput').value = ui.q;
   const map = v.matrix && matrixMode() === 'map';
-  $('#list').innerHTML = v.projectsGrid ? projectsGridHTML() : map ? mapHTML(v) : v.matrix ? matrixHTML(v) : listHTML(v);
+  $('#list').innerHTML = v.projectsGrid ? projectsGridHTML() : v.dashboard ? dashboardHTML() : map ? mapHTML(v)
+    : v.matrix ? matrixHTML(v) : listHTML(v);
   if (map) layoutMap();
   document.title = `${v.title} · Ogarnij`;
 }
@@ -426,11 +444,17 @@ function projectsGridHTML() {
     const all = state.tasks.filter(t => t.projectId === p.id);
     const done = all.filter(t => t.done).length;
     const pct = all.length ? Math.round(done / all.length * 100) : 0;
-    return `<a class="pcard" href="#/project/${p.id}" style="--c:${p.color}" data-drop="project:${p.id}">
-      <span class="pcard-name"><span class="dot" style="background:${p.color}"></span>${esc(p.name)}</span>
-      <span class="pcard-count">${c.project(p.id)} do zrobienia</span>
-      <span class="progress"><span style="width:${pct}%"></span></span>
-    </a>`;
+    return `<div class="pcard" style="--c:${p.color}" data-drop="project:${p.id}">
+      <a class="pcard-link" href="#/project/${p.id}">
+        <span class="pcard-name"><span class="dot" style="background:${p.color}"></span>${esc(p.name)}</span>
+        <span class="pcard-count">${c.project(p.id)} do zrobienia</span>
+        <span class="progress"><span style="width:${pct}%"></span></span>
+      </a>
+      <div class="pcard-actions">
+        <button class="icon-btn sm" data-act="edit-project" data-id="${p.id}" aria-label="Edytuj projekt ${esc(p.name)}" title="Edytuj">${icon('edit')}</button>
+        <button class="icon-btn sm danger" data-act="delete-project" data-id="${p.id}" aria-label="Usuń projekt ${esc(p.name)}" title="Usuń projekt">${icon('trash')}</button>
+      </div>
+    </div>`;
   }).join('')}</div>`;
 }
 
@@ -460,6 +484,261 @@ function matrixHTML(v) {
 }
 
 // Mini-macierz 2×2: świeci ćwiartka zadania; przy niepełnej ocenie — obie pasujące (blado).
+/* ---------- pulpit ---------- */
+
+const DAY_MS = 864e5;
+const WEEKDAYS_SHORT = ['nd', 'pn', 'wt', 'śr', 'cz', 'pt', 'sb'];
+
+function completionTimes() {
+  const out = [];
+  for (const t of state.tasks) {
+    if (t.done && t.doneAt) out.push(t.doneAt);
+    if (t.history) out.push(...t.history);
+  }
+  return out;
+}
+
+function startOfWeek(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); // poniedziałek
+  return x;
+}
+
+// Kolejność „Następnych kroków”: zaległe, na dziś, Zrób teraz, gwiazdka, bliski termin, Zaplanuj
+function nextScore(t) {
+  const today = todayISO();
+  let s = 0;
+  if (t.due && t.due < today) s += 100 + Math.min(30, Math.round((parseISO(today) - parseISO(t.due)) / DAY_MS));
+  else if (t.due === today) s += 80;
+  else if (t.due && t.due <= addDays(today, 3)) s += 25;
+  const q = quadOf(t);
+  if (q === 1) s += 60;
+  if (q === 2) s += 12;
+  if (q === 4) s -= 10;
+  if (t.priority) s += 30;
+  return s;
+}
+
+function dashboardHTML() {
+  const today = todayISO();
+  const now = new Date();
+  const open = state.tasks.filter(t => !t.done);
+  const overdue = open.filter(t => t.due && t.due < today);
+  const dueToday = open.filter(t => t.due === today);
+  const times = completionTimes();
+  const perDay = new Map();
+  for (const ts of times) { const k = isoOf(new Date(ts)); perDay.set(k, (perDay.get(k) || 0) + 1); }
+
+  // tydzień do tygodnia
+  const wk = startOfWeek(now).getTime();
+  const thisWeek = times.filter(ts => ts >= wk).length;
+  const lastWeek = times.filter(ts => ts >= wk - 7 * DAY_MS && ts < wk).length;
+  const delta = thisWeek - lastWeek;
+
+  // seria: kolejne dni z co najmniej jednym ukończeniem (dziś może jeszcze nie mieć)
+  let streak = 0;
+  for (let i = perDay.has(today) ? 0 : 1; ; i++) {
+    if (perDay.has(addDays(today, -i))) streak++; else break;
+  }
+
+  const hello = now.getHours() < 12 ? 'Dzień dobry' : now.getHours() < 18 ? 'Cześć' : 'Dobry wieczór';
+  const q1 = open.filter(t => quadOf(t) === 1).length;
+
+  const nexts = open.map(t => [nextScore(t), t]).filter(([sc]) => sc > 0)
+    .sort((a, b) => b[0] - a[0] || byOrder(a[1], b[1])).slice(0, 5).map(([, t]) => t);
+
+  return `<div class="dash">
+    <section class="dcard hero">
+      <p class="hero-hello">${hello}! ${fmtLongDate(today)}</p>
+      <div class="hero-row">
+        <div>
+          <div class="hero-num">${dueToday.length + overdue.length}</div>
+          <div class="hero-label">${plural(dueToday.length + overdue.length, 'zadanie', 'zadania', 'zadań')} na dziś</div>
+        </div>
+        ${overdue.length ? `<a class="status-pill critical" href="#/today">${icon('alert')}${overdue.length} po terminie</a>`
+          : '<span class="status-pill good">' + icon('check') + 'nic zaległego</span>'}
+      </div>
+    </section>
+
+    <section class="tiles">
+      ${tile('Otwarte zadania', open.length, '', '#/inbox')}
+      ${tile('Ukończone w tym tygodniu', thisWeek,
+        lastWeek || thisWeek ? `<span class="delta ${delta > 0 ? 'up' : ''}">${delta > 0 ? '▲ +' : delta < 0 ? '▼ ' : ''}${delta} vs poprzedni tydzień</span>` : '')}
+      ${tile('Seria', `${streak} ${plural(streak, 'dzień', 'dni', 'dni')}`, streak ? `<span class="delta">${icon('flame')}z rzędu z ukończonym zadaniem</span>` : '<span class="delta">ukończ coś dziś, żeby zacząć serię</span>')}
+      ${tile('Zrób teraz', q1, '<span class="delta">ważne i pilne</span>', '#/matrix')}
+    </section>
+
+    <section class="dcard span2">
+      <header class="dcard-head"><h3>Obciążenie — najbliższe 14 dni</h3><span class="muted">zadania z terminem</span></header>
+      ${loadChartHTML(open)}
+    </section>
+
+    <section class="dcard">
+      <header class="dcard-head"><h3>Następne kroki</h3><span class="muted">co warto zrobić teraz</span></header>
+      ${nexts.length ? `<ul class="tasks">${nexts.map(t => rowHTML(t, {})).join('')}</ul>`
+        : '<p class="hint">Nic pilnego. Dodaj terminy albo oceń zadania w Macierzy, a podpowiem kolejność.</p>'}
+    </section>
+
+    <section class="dcard">
+      <header class="dcard-head"><h3>Struktura otwartych zadań</h3><span class="muted">macierz Eisenhowera</span></header>
+      ${structureHTML(open)}
+    </section>
+
+    <section class="dcard span2">
+      <header class="dcard-head"><h3>Aktywność</h3><span class="muted">ukończone zadania dziennie</span></header>
+      ${heatmapHTML(perDay)}
+    </section>
+
+    <section class="dcard span2">
+      <header class="dcard-head"><h3>Projekty</h3><span class="muted">postęp: ukończone z wszystkich</span></header>
+      ${projectsProgressHTML()}
+    </section>
+  </div>`;
+}
+
+function tile(label, value, sub, href) {
+  const inner = `<span class="tile-label">${esc(label)}</span><span class="tile-value">${value}</span>${sub || ''}`;
+  return href ? `<a class="tile" href="${href}">${inner}</a>` : `<div class="tile">${inner}</div>`;
+}
+
+function tableView(head, rows) {
+  return `<details class="table-view"><summary>Pokaż jako tabelę</summary>
+    <table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></details>`;
+}
+
+function loadChartHTML(open) {
+  const today = todayISO();
+  const cols = [{ key: 'over', label: '<span class="wd">po&nbsp;</span>term.', n: open.filter(t => t.due && t.due < today).length, over: true }];
+  for (let i = 0; i < 14; i++) {
+    const day = addDays(today, i);
+    const d = parseISO(day);
+    cols.push({ key: day, label: i === 0 ? 'dziś' : `<span class="wd">${WEEKDAYS_SHORT[d.getDay()]} </span>${d.getDate()}`, n: open.filter(t => t.due === day).length,
+      weekend: d.getDay() === 0 || d.getDay() === 6, today: i === 0, long: fmtLongDate(day) });
+  }
+  const max = Math.max(3, ...cols.map(c => c.n));
+  const top = cols.reduce((a, c) => (c.n > a.n ? c : a), cols[1]);
+  return `<div class="colchart" role="img" aria-label="Liczba zadań z terminem na każdy z najbliższych 14 dni">
+      <div class="colchart-grid"><span style="bottom:100%">${max}</span><span style="bottom:50%">${Math.round(max / 2)}</span></div>
+      ${cols.map(c => `<div class="col ${c.over ? 'over' : ''} ${c.weekend ? 'weekend' : ''} ${c.today ? 'is-today' : ''}"
+          tabindex="0" data-tip="${c.n} ${plural(c.n, 'zadanie', 'zadania', 'zadań')}|${c.over ? 'po terminie' : c.long}">
+        <div class="col-plot">
+          <span class="col-bar" style="height:${c.n ? Math.max(4, c.n / max * 100) : 0}%">${(c === top || c.over) && c.n ? `<span class="col-val">${c.n}</span>` : ''}</span>
+        </div>
+        <span class="col-label">${c.label}</span>
+      </div>`).join('')}
+    </div>
+    ${tableView(['Dzień', 'Zadania'], cols.map(c => [c.over ? 'Po terminie' : c.long, c.n]))}`;
+}
+
+function structureHTML(open) {
+  const parts = [1, 2, 3, 4].map(q => ({ name: QUADS[q].name, cls: `q${q}`, n: open.filter(t => quadOf(t) === q).length }))
+    .concat({ name: 'Bez oceny', cls: 'q0', n: open.filter(t => !quadOf(t)).length });
+  const total = open.length || 1;
+  const shown = parts.filter(p => p.n);
+  if (!open.length) return '<p class="hint">Brak otwartych zadań.</p>';
+  const plan = parts[1].n;
+  return `<div class="segbar" role="img" aria-label="${parts.map(p => `${p.name}: ${p.n}`).join(', ')}">
+      ${shown.map(p => {
+        const pct = Math.round(p.n / total * 100);
+        return `<span class="seg ${p.cls}" style="flex:${p.n}" tabindex="0" data-tip="${p.n} (${pct}%)|${p.name}">${pct >= 12 ? `${pct}%` : ''}</span>`;
+      }).join('')}
+    </div>
+    <ul class="legend">${parts.map(p => `<li><i class="sw ${p.cls}"></i>${esc(p.name)} <b>${p.n}</b></li>`).join('')}</ul>
+    <p class="hint insight">${parts[0].n > plan && parts[0].n > 2
+      ? 'Dużo gaszenia pożarów — spróbuj więcej rzeczy planować z wyprzedzeniem (ćwiartka „Zaplanuj”).'
+      : plan >= parts[0].n && plan > 0 ? 'Dobrze — większość ważnych rzeczy jest zaplanowana, zanim zrobi się pilnie.'
+      : parts[4].n > total / 2 ? 'Ponad połowa zadań nie ma oceny — oceń je w Macierzy, żeby lepiej ustalić kolejność.' : ''}</p>
+    ${tableView(['Ćwiartka', 'Zadania', 'Udział'], parts.map(p => [p.name, p.n, `${Math.round(p.n / total * 100)}%`]))}`;
+}
+
+function heatmapHTML(perDay) {
+  const weeks = matchMedia('(max-width: 760px)').matches ? 15 : 26;
+  const start = startOfWeek(new Date());
+  start.setDate(start.getDate() - (weeks - 1) * 7);
+  const today = todayISO();
+  const level = n => (n === 0 ? 0 : n === 1 ? 1 : n <= 3 ? 2 : n <= 5 ? 3 : 4);
+  let cells = '';
+  let months = '';
+  let lastMonth = -1;
+  let total = 0;
+  let best = { n: 0, day: '' };
+  for (let w = 0; w < weeks; w++) {
+    const monday = new Date(start);
+    monday.setDate(start.getDate() + w * 7);
+    if (monday.getMonth() !== lastMonth) {
+      months += `<span style="grid-column:${w + 2}">${MONTHS[monday.getMonth()]}</span>`;
+      lastMonth = monday.getMonth();
+    }
+    for (let d = 0; d < 7; d++) {
+      const day = new Date(monday);
+      day.setDate(monday.getDate() + d);
+      const k = isoOf(day);
+      if (k > today) { cells += `<span class="hm-cell future" style="grid-column:${w + 2};grid-row:${d + 2}"></span>`; continue; }
+      const n = perDay.get(k) || 0;
+      total += n;
+      if (n > best.n) best = { n, day: k };
+      cells += `<span class="hm-cell l${level(n)} ${k === today ? 'is-today' : ''}" style="grid-column:${w + 2};grid-row:${d + 2}"
+        tabindex="-1" data-tip="${n} ${plural(n, 'ukończone', 'ukończone', 'ukończonych')}|${fmtLongDate(k)}"></span>`;
+    }
+  }
+  const rows = ['pn', '', 'śr', '', 'pt', '', ''].map((l, i) => `<span class="hm-day" style="grid-row:${i + 2}">${l}</span>`).join('');
+  return `<div class="heatmap" style="--weeks:${weeks}" role="img" aria-label="Ukończone zadania w ostatnich ${weeks} tygodniach: ${total}">
+      ${months.replace(/<span/g, '<span class="hm-month"')}${rows}${cells}
+    </div>
+    <div class="hm-foot">
+      <span>${total} ${plural(total, 'ukończone zadanie', 'ukończone zadania', 'ukończonych zadań')} w ${weeks} tygodni${best.n ? ` · rekord: ${best.n} (${fmtLongDate(best.day)})` : ''}</span>
+      <span class="hm-scale">mniej <i class="hm-cell l0"></i><i class="hm-cell l1"></i><i class="hm-cell l2"></i><i class="hm-cell l3"></i><i class="hm-cell l4"></i> więcej</span>
+    </div>`;
+}
+
+function projectsProgressHTML() {
+  if (!state.projects.length) return '<p class="hint">Nie masz jeszcze projektów.</p>';
+  const today = todayISO();
+  const rows = state.projects.map(p => {
+    const all = state.tasks.filter(t => t.projectId === p.id);
+    const done = all.filter(t => t.done).length;
+    const over = all.filter(t => !t.done && t.due && t.due < today).length;
+    return { p, all: all.length, done, open: all.length - done, over, pct: all.length ? Math.round(done / all.length * 100) : 0 };
+  }).sort((a, b) => b.open - a.open);
+  return `<ul class="pprog">${rows.map(r => `<li>
+      <a href="#/project/${r.p.id}" class="pprog-name"><span class="dot" style="background:${r.p.color}"></span>${esc(r.p.name)}</a>
+      <span class="meter" tabindex="0" data-tip="${r.pct}%|${r.done} z ${r.all} ukończonych"><span style="width:${r.pct}%"></span></span>
+      <span class="pprog-num">${r.done}/${r.all}</span>
+      <span class="pprog-over">${r.over ? `${icon('alert')}${r.over} po terminie` : ''}</span>
+    </li>`).join('')}</ul>
+    ${tableView(['Projekt', 'Ukończone', 'Wszystkie', 'Po terminie'], rows.map(r => [r.p.name, r.done, r.all, r.over]))}`;
+}
+
+// Jeden dymek dla wszystkich wykresów: wartość pogrubiona, opis pod spodem (textContent).
+const vizTip = document.createElement('div');
+vizTip.className = 'viz-tip';
+vizTip.setAttribute('role', 'tooltip');
+document.body.append(vizTip);
+
+function showTip(el) {
+  const [value, label] = el.dataset.tip.split('|');
+  vizTip.replaceChildren();
+  const b = document.createElement('b');
+  b.textContent = value;
+  const s = document.createElement('span');
+  s.textContent = label || '';
+  vizTip.append(b, s);
+  vizTip.classList.add('show');
+  const r = el.getBoundingClientRect();
+  const w = vizTip.offsetWidth;
+  vizTip.style.left = `${Math.min(window.innerWidth - w - 8, Math.max(8, r.left + r.width / 2 - w / 2))}px`;
+  vizTip.style.top = `${Math.max(8, r.top - vizTip.offsetHeight - 8)}px`;
+}
+
+document.addEventListener('pointerover', e => {
+  const el = e.target.closest && e.target.closest('[data-tip]');
+  if (el) showTip(el); else vizTip.classList.remove('show');
+});
+document.addEventListener('focusin', e => { if (e.target.dataset && e.target.dataset.tip) showTip(e.target); });
+document.addEventListener('focusout', () => vizTip.classList.remove('show'));
+document.addEventListener('scroll', () => vizTip.classList.remove('show'), true);
+
 /* ---------- mapa priorytetów ---------- */
 
 function matrixMode() {
@@ -811,7 +1090,8 @@ function toggleDone(id) {
   const t = taskById(id);
   if (!t) return;
   if (!t.done && t.repeat) {
-    const prev = { due: t.due, checklist: t.checklist.map(c => ({ ...c })) };
+    const prev = { due: t.due, checklist: t.checklist.map(c => ({ ...c })), history: [...(t.history || [])] };
+    t.history = [...prev.history, Date.now()].slice(-400); // do mapy aktywności na Pulpicie
     t.due = nextDue(t.due || todayISO(), t.repeat);
     t.checklist.forEach(c => { c.done = false; });
     commit();
@@ -950,10 +1230,8 @@ function editEntity(kind, id) {
   $('[data-dlg="cancel"]', dlg).onclick = () => dlg.close();
   const del = $('[data-dlg="delete"]', dlg);
   if (del) del.onclick = () => {
-    const msg = kind === 'project'
-      ? `Usunąć projekt „${ent.name}”? Jego zadania trafią do Skrzynki.`
-      : `Usunąć etykietę „${ent.name}”? Zadania pozostaną bez zmian.`;
-    if (!confirm(msg)) return;
+    if (kind === 'project') { dlg.close(); deleteProject(ent.id); return; }
+    if (!confirm(`Usunąć etykietę „${ent.name}”? Zadania pozostaną bez zmian.`)) return;
     list.splice(list.indexOf(ent), 1);
     for (const t of state.tasks) {
       if (kind === 'project' && t.projectId === ent.id) t.projectId = null;
@@ -965,6 +1243,52 @@ function editEntity(kind, id) {
   };
   dlg.showModal();
   $('input[name="name"]', dlg).focus();
+}
+
+// Usuwanie projektu: wybór, co z zadaniami, i „Cofnij” w powiadomieniu.
+function deleteProject(id) {
+  const p = projectById(id);
+  if (!p) return;
+  const tasks = state.tasks.filter(t => t.projectId === id);
+  const open = tasks.filter(t => !t.done).length;
+  const dlg = $('#dlg');
+  dlg.innerHTML = `<div class="dlg-form">
+    <h2>Usunąć projekt „${esc(p.name)}”?</h2>
+    <p class="hint">${tasks.length
+      ? `Projekt ma ${tasks.length} ${plural(tasks.length, 'zadanie', 'zadania', 'zadań')} (w tym ${open} otwartych). Co z nimi zrobić?`
+      : 'Projekt nie ma żadnych zadań.'}</p>
+    ${tasks.length ? `<div class="choice">
+      <label><input type="radio" name="mode" value="inbox" checked><span><b>Przenieś zadania do Skrzynki</b><small>Zadania zostaną, tylko bez projektu.</small></span></label>
+      <label><input type="radio" name="mode" value="all"><span><b>Usuń razem z zadaniami</b><small>Zadania znikną na wszystkich urządzeniach.</small></span></label>
+    </div>` : ''}
+    <div class="dlg-actions">
+      <span class="sp"></span>
+      <button class="btn" data-dlg="cancel">Anuluj</button>
+      <button class="btn danger-fill" data-dlg="ok">${icon('trash')}Usuń projekt</button>
+    </div>
+  </div>`;
+  $('[data-dlg="cancel"]', dlg).onclick = () => dlg.close();
+  $('[data-dlg="ok"]', dlg).onclick = () => {
+    const mode = ($('input[name="mode"]:checked', dlg) || {}).value || 'inbox';
+    const snapshot = JSON.stringify(state);
+    state.projects = state.projects.filter(x => x.id !== id);
+    if (mode === 'all') state.tasks = state.tasks.filter(t => t.projectId !== id);
+    else for (const t of tasks) t.projectId = null;
+    dlg.close();
+    if (ui.arg === id) location.hash = '#/projects';
+    if (ui.sel && !taskById(ui.sel)) closeTask();
+    commit();
+    toast(mode === 'all' ? `Usunięto projekt i ${tasks.length} ${plural(tasks.length, 'zadanie', 'zadania', 'zadań')}` : 'Usunięto projekt',
+      () => { state = normalize(JSON.parse(snapshot)); commit(); });
+  };
+  dlg.showModal();
+}
+
+function plural(n, one, few, many) {
+  if (n === 1) return one;
+  const d = n % 10;
+  const dd = n % 100;
+  return d >= 2 && d <= 4 && (dd < 12 || dd > 14) ? few : many;
 }
 
 function openSettings() {
@@ -1147,6 +1471,7 @@ document.addEventListener('click', e => {
     case 'new-label': editEntity('label'); break;
     case 'edit-project': editEntity('project', id); break;
     case 'edit-label': editEntity('label', id); break;
+    case 'delete-project': deleteProject(id); break;
     case 'settings': setDrawer(false); openSettings(); break;
     case 'clear-done': {
       const n = state.tasks.filter(x => x.done).length;

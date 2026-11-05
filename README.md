@@ -5,10 +5,17 @@ Prosty menedżer zadań w stylu Nozbe, działający w przeglądarce (komputer) i
 
 ## Funkcje
 
+- **Pulpit** – podsumowanie dnia: liczba zadań na dziś i zaległych, ukończone w tym tygodniu (vs poprzedni),
+  seria dni z ukończonym zadaniem, wykres obciążenia na 14 dni, „Następne kroki”, struktura zadań wg macierzy
+  Eisenhowera, mapa aktywności (ostatnie pół roku) i postęp projektów. Każdy wykres ma podgląd wartości
+  po najechaniu i widok tabeli.
 - **Skrzynka** – wszystko, co nie ma jeszcze projektu.
 - **Priorytet** – zadania oznaczone gwiazdką; kolejność ustawiasz przeciągając.
 - **Na dziś** (z zaległymi) i **Nadchodzące** – zadania z terminem, pogrupowane po dniach.
-- **Projekty** i **etykiety** z kolorami; licznik otwartych zadań i pasek postępu.
+- **Projekty** i **etykiety** z kolorami; licznik otwartych zadań i pasek postępu. Projekt można usunąć prosto
+  z widoku Projekty – z przeniesieniem zadań do Skrzynki albo razem z nimi (z możliwością cofnięcia).
+- Wygląd w stylu **japandi**: papier ryżowy, len, jasne drewno i tusz, stonowane kolory, szeryfowe nagłówki;
+  jasny i ciemny motyw.
 - Szczegóły zadania: termin, powtarzanie (codziennie, w dni robocze, co tydzień/miesiąc/rok),
   etykiety, notatka, lista kontrolna, komentarze z datą (linki są klikalne).
 - Szybkie dodawanie: `Zadzwonić do Ani #Praca @telefon !`
