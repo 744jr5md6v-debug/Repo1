@@ -1017,3 +1017,4 @@ a.tile:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)
   .hero-row { align-items: flex-start; flex-direction: column; gap: 12px; }
   .status-pill { margin-bottom: 0; }
 }
+.app-version { font-size: 12px; color: var(--muted); }

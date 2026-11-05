@@ -4,6 +4,7 @@
    Ogarnij — menedżer zadań (vanilla JS, dane w localStorage)
    ============================================================ */
 
+const APP_VERSION = '2026.11.05-2'; // pokazywana w Ustawieniach
 const STORE_KEY = 'ogarnij.v1';
 const THEME_KEY = 'ogarnij.theme';
 const MATRIX_MODE_KEY = 'ogarnij.matrixMode';
@@ -1314,7 +1315,7 @@ function openSettings() {
         <button class="btn danger" data-dlg="reset">Wyczyść wszystko</button>
       </div>
     </div>
-    <div class="dlg-actions"><span class="sp"></span><button class="btn primary" data-dlg="cancel">Gotowe</button></div>
+    <div class="dlg-actions"><span class="app-version">Wersja ${APP_VERSION}</span><span class="sp"></span><button class="btn primary" data-dlg="cancel">Gotowe</button></div>
   </div>`;
   renderSyncBox($('#syncBox', dlg));
   $$('[data-theme-set]', dlg).forEach(b => b.onclick = () => {
@@ -1837,6 +1838,26 @@ render();
 
 Sync.init();
 
+// Aktualizacje: przy każdym otwarciu (i co 30 min) sprawdzamy nową wersję; gdy przejmie stronę — przeładowanie.
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return; // pierwsza instalacja — strona już jest świeża
+    const a = document.activeElement;
+    if (a && a.matches('input, textarea') && a.value) {
+      toast('Jest nowa wersja aplikacji', () => location.reload());
+      $('#toast button').textContent = 'Odśwież';
+      return;
+    }
+    reloading = true;
+    location.reload();
+  });
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+      reg.update();
+      setInterval(() => reg.update(), 30 * 60e3);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update(); });
+    }).catch(() => {});
+  });
 }
