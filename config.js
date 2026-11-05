@@ -3,5 +3,5 @@
 // Klucz "anon" / "publishable" jest publiczny z założenia; dane chroni logowanie i RLS w bazie.
 window.OGARNIJ_CONFIG = {
   supabaseUrl: 'https://bdyqztbsugmiiolwbsxo.supabase.co',
-  supabaseAnonKey: '',
+  supabaseAnonKey: 'sb_publishable_7miU1_gjPXHPbvK1-3Da7A_dlnRIbU8',
 };
