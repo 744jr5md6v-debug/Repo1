@@ -4,7 +4,7 @@
    Ogarnij — menedżer zadań (vanilla JS, dane w localStorage)
    ============================================================ */
 
-const APP_VERSION = '2026.11.06-1'; // pokazywana w Ustawieniach
+const APP_VERSION = '2026.11.06-2'; // pokazywana w Ustawieniach
 const STORE_KEY = 'ogarnij.v1';
 const THEME_KEY = 'ogarnij.theme';
 const MATRIX_MODE_KEY = 'ogarnij.matrixMode';
@@ -92,7 +92,8 @@ function fmtLongDate(s) {
 
 function fmtStamp(ts) {
   const d = new Date(ts);
-  const day = isoOf(d) === todayISO() ? 'dziś' : `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  const year = d.getFullYear() !== new Date().getFullYear() ? ` ${d.getFullYear()}` : '';
+  const day = isoOf(d) === todayISO() ? 'dziś' : `${d.getDate()} ${MONTHS[d.getMonth()]}${year}`;
   return `${day}, ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
@@ -1299,6 +1300,54 @@ function deleteProject(id) {
   dlg.showModal();
 }
 
+// Import: dołączenie do obecnych danych (domyślnie, bez kasowania) albo zastąpienie wszystkiego.
+function importDialog(data) {
+  const projects = Array.isArray(data.projects) ? data.projects : [];
+  const labels = Array.isArray(data.labels) ? data.labels : [];
+  const incoming = normalize({ projects, labels, tasks: data.tasks });
+  const has = new Set([...state.tasks, ...state.projects, ...state.labels].map(x => x.id));
+  const fresh = list => list.filter(x => !has.has(x.id));
+  const nT = fresh(incoming.tasks).length;
+  const nP = fresh(incoming.projects).length;
+  const dlg = $('#dlg');
+  dlg.innerHTML = `<div class="dlg-form">
+    <h2>Import danych</h2>
+    <p class="hint">W pliku: ${incoming.tasks.length} ${plural(incoming.tasks.length, 'zadanie', 'zadania', 'zadań')},
+      ${incoming.projects.length} ${plural(incoming.projects.length, 'projekt', 'projekty', 'projektów')},
+      ${incoming.labels.length} ${plural(incoming.labels.length, 'etykieta', 'etykiety', 'etykiet')}.</p>
+    <div class="choice">
+      <label><input type="radio" name="mode" value="merge" checked><span><b>Dołącz do obecnych</b>
+        <small>Dojdzie ${nT} ${plural(nT, 'nowe zadanie', 'nowe zadania', 'nowych zadań')} i ${nP} ${plural(nP, 'projekt', 'projekty', 'projektów')}.
+        Nic nie zostanie usunięte, a elementy już zaimportowane wcześniej zostaną pominięte.</small></span></label>
+      <label><input type="radio" name="mode" value="replace"><span><b>Zastąp wszystko</b>
+        <small>Obecne zadania, projekty i etykiety zostaną usunięte (także na innych urządzeniach).</small></span></label>
+    </div>
+    <div class="dlg-actions">
+      <span class="sp"></span>
+      <button class="btn" data-dlg="cancel">Anuluj</button>
+      <button class="btn primary" data-dlg="ok">Importuj</button>
+    </div>
+  </div>`;
+  $('[data-dlg="cancel"]', dlg).onclick = () => dlg.close();
+  $('[data-dlg="ok"]', dlg).onclick = () => {
+    const mode = $('input[name="mode"]:checked', dlg).value;
+    const snapshot = JSON.stringify(state);
+    if (mode === 'replace') {
+      state = incoming;
+    } else {
+      state.projects.push(...fresh(incoming.projects));
+      state.labels.push(...fresh(incoming.labels));
+      state.tasks.push(...fresh(incoming.tasks));
+    }
+    dlg.close();
+    go('#/inbox');
+    commit();
+    toast(mode === 'replace' ? 'Zastąpiono dane z pliku' : `Zaimportowano ${nT} ${plural(nT, 'zadanie', 'zadania', 'zadań')}`,
+      () => { state = normalize(JSON.parse(snapshot)); commit(); });
+  };
+  dlg.showModal();
+}
+
 function plural(n, one, few, many) {
   if (n === 1) return one;
   const d = n % 10;
@@ -1348,19 +1397,15 @@ function openSettings() {
   $('[data-dlg="import"]', dlg).onchange = async e => {
     const file = e.target.files[0];
     if (!file) return;
+    let data;
     try {
-      const data = JSON.parse(await file.text());
+      data = JSON.parse(await file.text());
       if (!Array.isArray(data.tasks)) throw new Error('format');
-      if (!confirm(`Zaimportować ${data.tasks.length} zadań? Obecne dane zostaną zastąpione.`)) return;
-      const { projects, labels, tasks } = data;
-      state = normalize({ projects, labels, tasks });
-      dlg.close();
-      go('#/inbox');
-      commit();
-      toast('Zaimportowano dane');
     } catch {
       toast('To nie jest prawidłowy plik kopii zapasowej');
+      return;
     }
+    importDialog(data);
   };
   $('[data-dlg="reset"]', dlg).onclick = () => {
     if (!confirm('Na pewno usunąć wszystkie zadania, projekty i etykiety?')) return;
