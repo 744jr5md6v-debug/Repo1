@@ -13,6 +13,9 @@ const Sync = (() => {
   const KINDS = { task: 'tasks', project: 'projects', label: 'labels' };
   const PAGE = 500;
   const OVERLAP_MS = 60_000; // pobieramy z zakładką, żeby nie zgubić zapisów zatwierdzonych "w tle"
+  // Podbij, gdy zmienia się sposób liczenia skrótu albo aplikacja sama poprawia dane (migracja) —
+  // wtedy niezmienione rekordy zostaną przeliczone, zamiast udawać świeżą edycję.
+  const HASH_VERSION = 2;
 
   let client = null;
   let user = null;
@@ -26,14 +29,17 @@ const Sync = (() => {
   let meta = loadMeta();
 
   // Stabilny zapis JSON (posortowane klucze) — jsonb w Postgresie zmienia kolejność kluczy.
+  // Puste wartości domyślne (null, '', false, []) pomijamy: nowe pole dodane w aktualizacji aplikacji
+  // nie zmienia wtedy skrótu i nie wygląda jak edycja, która mogłaby „wskrzesić” usunięte zadanie.
+  const isEmpty = x => x === undefined || x === null || x === '' || x === false || (Array.isArray(x) && x.length === 0);
   const stable = v => Array.isArray(v) ? `[${v.map(stable).join(',')}]`
-    : v && typeof v === 'object' ? `{${Object.keys(v).sort().filter(k => v[k] !== undefined).map(k => JSON.stringify(k) + ':' + stable(v[k])).join(',')}}`
+    : v && typeof v === 'object' ? `{${Object.keys(v).sort().filter(k => !isEmpty(v[k])).map(k => JSON.stringify(k) + ':' + stable(v[k])).join(',')}}`
     : JSON.stringify(v ?? null);
 
   function loadMeta() {
     try { return JSON.parse(localStorage.getItem(META_KEY)) || emptyMeta(null); } catch { return emptyMeta(null); }
   }
-  function emptyMeta(userId) { return { userId, cursor: null, first: true, items: {} }; }
+  function emptyMeta(userId) { return { userId, cursor: null, first: true, items: {}, hv: HASH_VERSION }; }
   function saveMeta() { try { localStorage.setItem(META_KEY, JSON.stringify(meta)); } catch { /* brak miejsca */ } }
 
   function config() {
@@ -61,7 +67,21 @@ const Sync = (() => {
 
   /* ---------- wykrywanie zmian lokalnych ---------- */
 
+  // Po aktualizacji aplikacji: rekordy zsynchronizowane i nieedytowane (dirty = false) dostają skrót
+  // liczony po nowemu. Prawdziwe lokalne edycje są już oznaczone jako dirty i zostają nietknięte.
+  function rehashIfNeeded() {
+    if (meta.hv === HASH_VERSION) return;
+    for (const [kind, coll] of Object.entries(KINDS)) {
+      for (const e of state[coll]) {
+        const m = meta.items[e.id];
+        if (m && !m.dirty && !m.d && m.k === kind) m.h = stable(e);
+      }
+    }
+    meta.hv = HASH_VERSION;
+  }
+
   function scan() {
+    rehashIfNeeded();
     const now = Date.now();
     const seen = new Set();
     for (const [kind, coll] of Object.entries(KINDS)) {

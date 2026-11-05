@@ -4,7 +4,7 @@
    Ogarnij — menedżer zadań (vanilla JS, dane w localStorage)
    ============================================================ */
 
-const APP_VERSION = '2026.11.05-2'; // pokazywana w Ustawieniach
+const APP_VERSION = '2026.11.06-1'; // pokazywana w Ustawieniach
 const STORE_KEY = 'ogarnij.v1';
 const THEME_KEY = 'ogarnij.theme';
 const MATRIX_MODE_KEY = 'ogarnij.matrixMode';
@@ -1012,6 +1012,10 @@ function renderDetail() {
             ${Object.entries(REPEATS).map(([k, n]) => `<option value="${k}" ${k === t.repeat ? 'selected' : ''}>${n}</option>`).join('')}
           </select>
         </label>
+        ${t.repeat && !t.done ? `<div class="repeat-end">
+          <span class="hint">Odhaczenie przesuwa zadanie na następny termin.</span>
+          <button class="btn sm" data-act="end-repeat" data-id="${t.id}">${icon('check')}Zakończ cykl</button>
+        </div>` : ''}
         <div class="field">
           <span class="field-label">${icon('tag')}Etykiety</span>
           <div class="chips">
@@ -1096,13 +1100,23 @@ function toggleDone(id) {
     t.due = nextDue(t.due || todayISO(), t.repeat);
     t.checklist.forEach(c => { c.done = false; });
     commit();
-    toast(`Zadanie cykliczne — następny termin: ${fmtDue(t.due)}`, () => { Object.assign(t, prev); commit(); });
+    toast(`Zadanie cykliczne — następny termin: ${fmtDue(t.due)}. Aby zakończyć cykl, otwórz zadanie.`, () => { Object.assign(t, prev); commit(); });
     return;
   }
   t.done = !t.done;
   t.doneAt = t.done ? Date.now() : null;
   commit();
   if (t.done) toast('Ukończono zadanie', () => { t.done = false; t.doneAt = null; commit(); });
+}
+
+// Kończy zadanie cykliczne na dobre: wyłącza powtarzanie i oznacza jako ukończone.
+function endRepeat(id) {
+  const t = taskById(id);
+  if (!t) return;
+  const prev = { repeat: t.repeat, done: t.done, doneAt: t.doneAt };
+  Object.assign(t, { repeat: '', done: true, doneAt: Date.now() });
+  commit();
+  toast('Zakończono zadanie cykliczne', () => { Object.assign(t, prev); commit(); });
 }
 
 function deleteTask(id) {
@@ -1467,6 +1481,7 @@ document.addEventListener('click', e => {
     case 'toggle-done': toggleDone(id); break;
     case 'toggle-star': { const x = taskById(id); x.priority = !x.priority; commit(); break; }
     case 'delete-task': deleteTask(id); break;
+    case 'end-repeat': endRepeat(id); break;
     case 'toggle-show-done': ui.showDone = !ui.showDone; renderMain(); break;
     case 'new-project': editEntity('project'); break;
     case 'new-label': editEntity('label'); break;
